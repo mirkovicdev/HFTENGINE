@@ -11,6 +11,37 @@ writes while the backtest runs.
 
 ![all nine panels](docs/shots/landscape_2560x1440.png)
 
+## Before you think about trading this
+
+This repository is a backtester and a replay screen. Nothing in it places orders. What the backtest
+leaves out, in numbers from the BTCUSDT session recorded here (25 minutes, 0.002 BTC orders):
+
+1. **Fees.** The tutorial strategy assumes a 0.005% market-maker rebate, as the
+   [tutorials state](https://hftbacktest.readthedocs.io/en/latest/tutorials/High-Frequency%20Grid%20Trading.html).
+   A regular Binance USDT-M account pays a 0.02% maker fee. The spread was one tick 99.7% of the
+   time; one tick is 0.013 bps of price, so the retail fee is 154 ticks per fill and the rebate is
+   38 ticks the other way. The session traded about $413k of notional: $83 of fees at the retail
+   rate against $21 of rebate at the tutorial rate. The economics of quoting BTC at the touch exist
+   only inside a rebate program.
+2. **Latency.** The data was recorded on a laptop in Europe: 200 ms feed latency, a 250 ms round
+   trip. The tutorials' data was collected near the exchange at about 4 ms. Here, 24% of the
+   strategy's post-only orders were rejected because the market had moved while they were in flight.
+   Binance Futures runs in AWS Tokyo (docs:
+   [market maker programs](https://hftbacktest.readthedocs.io/en/latest/market_maker_program.html),
+   a page that carries its own out-of-date warning).
+3. **Fills are modelled.** Queue position is a probabilistic estimate from level-2 data; there is no
+   market impact and no partial fill. Order latency here is derived from feed latency, not measured;
+   the docs describe measuring it by placing far-from-mid orders and cancelling them
+   ([Order Latency Data](https://hftbacktest.readthedocs.io/en/latest/tutorials/Order%20Latency%20Data.html)).
+   Their guidance for going live is to trade tiny size, plot live against backtest, adjust the queue
+   model until they agree, and only then scale
+   ([Debugging Backtesting and Live Discrepancies](https://hftbacktest.readthedocs.io/en/latest/debugging_backtesting_and_live_discrepancies.html)).
+4. **No P&L is shown, deliberately.** The strategy is a documentation example, not a validated one.
+
+Live trading is a separate, Rust-only part of hftbacktest with its own
+[connector](https://github.com/nkaz001/hftbacktest/tree/master/connector); its example configs point
+at the testnet. None of it is configured or used here.
+
 ```
 hftengine/
   hftbacktest/      clone of nkaz001/hftbacktest (Rust crate, Python package, data collector)
