@@ -1,0 +1,26 @@
+diff --git a/hftbacktest/src/backtest/models/queue.rs b/hftbacktest/src/backtest/models/queue.rs
+index 4e82cbe..92c1dcc 100644
+--- a/hftbacktest/src/backtest/models/queue.rs
++++ b/hftbacktest/src/backtest/models/queue.rs
+@@ -112,6 +112,21 @@ impl AnyClone for QueuePos {
+     }
+ }
+ 
++impl QueuePos {
++    /// Returns the estimated quantity ahead of the order in the queue at its price level.
++    ///
++    /// This is the value the exchange model uses to decide when the order is filled; it is
++    /// exposed read-only so that diagnostics and visualisation tools can display it.
++    pub fn front_q_qty(&self) -> f64 {
++        self.front_q_qty
++    }
++
++    /// Returns the traded quantity accumulated at the level since the last depth adjustment.
++    pub fn cum_trade_qty(&self) -> f64 {
++        self.cum_trade_qty
++    }
++}
++
+ impl Default for QueuePos {
+     fn default() -> Self {
+         Self {

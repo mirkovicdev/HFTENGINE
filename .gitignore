@@ -1,0 +1,16 @@
+# local environments and build output
+.venv/
+node_modules/
+runner/target/
+hftbacktest/target/
+dashboard/dist/
+__pycache__/
+.claude/
+
+# recorded data and derived files (rebuild with tools/session.py)
+data/
+
+# replay sessions are large; only the small sample built from the repo data is committed
+dashboard/public/sessions/*
+!dashboard/public/sessions/sample.hbr
+!dashboard/public/sessions/sample.collector.json

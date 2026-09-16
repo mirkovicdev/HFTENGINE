@@ -1,0 +1,266 @@
+/* HFTENGINE dashboard — text-mode terminal look: IBM VGA 9x16 bitmap font on a blue field,
+   CGA/EGA 16-colour palette, 1-character grid. Everything is sized in character cells
+   (--cw x --ch) so the layout stays crisp at integer zoom levels. */
+
+@font-face {
+  font-family: "VGA";
+  src: url("/fonts/WebPlus_IBM_VGA_9x16.woff") format("woff");
+  font-weight: normal;
+  font-style: normal;
+}
+@font-face {
+  font-family: "EGA8";
+  src: url("/fonts/WebPlus_IBM_EGA_8x8.woff") format("woff");
+}
+
+:root {
+  --cw: 9px;
+  --ch: 16px;
+
+  --blue: #0000aa;
+  --blue-deep: #000070;
+  --blue-dark: #000050;
+  --blue-light: #5555ff;
+  --gray: #aaaaaa;
+  --gray-dark: #555555;
+  --white: #ffffff;
+  --cyan: #55ffff;
+  --cyan-dark: #00aaaa;
+  --yellow: #ffff55;
+  --brown: #aa5500;
+  --green: #55ff55;
+  --green-dark: #00aa00;
+  --red: #ff5555;
+  --red-dark: #aa0000;
+  --magenta: #ff55ff;
+  --magenta-dark: #aa00aa;
+  --black: #000000;
+
+  --bg: var(--blue);
+  --bg-app: var(--blue-deep);
+  --fg: var(--gray);
+  --fg-dim: #7878d8;
+  --fg-hi: var(--white);
+  --frame: var(--gray);
+  --title-bg: var(--gray);
+  --title-fg: var(--blue-deep);
+  --title-key: var(--red-dark);
+  --sel-bg: var(--cyan-dark);
+  --sel-fg: var(--black);
+
+  --bid: var(--green);
+  --ask: var(--red);
+  --bid-bar: #007700;
+  --ask-bar: #880000;
+  --ours: var(--yellow);
+  --ours-bar: #8f8f00;
+  --ahead-bar: #1f7a8c;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--fg);
+  font-family: "VGA", "DepartureMono", ui-monospace, monospace;
+  font-size: var(--ch);
+  line-height: var(--ch);
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  text-rendering: optimizeSpeed;
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+}
+
+/* the whole UI scales by an integer zoom so the bitmap font stays pixel-exact */
+#app.zoom-1 { zoom: 1; }
+#app.zoom-2 { zoom: 2; }
+#app.zoom-3 { zoom: 3; }
+
+/* frame=WxH: a fixed-size app box (device px) centred in the window, for screen recording */
+#app.framed {
+  position: relative;
+  inset: auto;
+  flex: 0 0 auto;
+}
+body:has(#app.framed) {
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------- chrome ---------- */
+.bar {
+  height: var(--ch);
+  background: var(--title-bg);
+  color: var(--title-fg);
+  white-space: pre;
+  overflow: hidden;
+  flex: 0 0 auto;
+  padding: 0 var(--cw);
+}
+.bar .hi { color: var(--white); background: var(--blue-deep); }
+.bar .k { color: var(--title-key); }
+.bar .right { float: right; }
+.bar.status { background: var(--blue-dark); color: var(--gray); }
+.bar.status .v { color: var(--white); }
+.bar.status .play { color: var(--green); }
+.bar.status .pause { color: var(--yellow); }
+
+/* ---------- workspace ---------- */
+.safe {
+  flex: 0 0 auto;
+  background: var(--bg-app);
+}
+.work {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: var(--cw);
+  padding: calc(var(--ch) / 2) var(--cw);
+  box-sizing: border-box;
+}
+.work.landscape {
+  grid-template-columns: 50ch 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
+  grid-template-areas:
+    "book queue latency engine"
+    "book fills market collector"
+    "book tape log log";
+}
+.work.portrait {
+  grid-template-columns: 1fr;
+  grid-auto-rows: 1fr;
+}
+.work.focus {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+/* ---------- panel ---------- */
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+  border: 1px solid var(--frame);
+  box-sizing: border-box;
+}
+.panel > .title {
+  flex: 0 0 var(--ch);
+  height: var(--ch);
+  background: var(--title-bg);
+  color: var(--title-fg);
+  white-space: pre;
+  overflow: hidden;
+  padding: 0 var(--cw);
+}
+.panel > .title .n { color: var(--title-key); }
+.panel > .title .right { float: right; color: var(--blue-dark); }
+.panel > .body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 var(--cw);
+  white-space: pre;
+  position: relative;
+}
+.panel > .body.pad-top { padding-top: calc(var(--ch) / 2); }
+.panel.active { border-color: var(--cyan); }
+.panel.active > .title { background: var(--cyan); }
+
+/* text colours */
+.w { color: var(--white); }
+.d { color: var(--fg-dim); }
+.c { color: var(--cyan); }
+.y { color: var(--yellow); }
+.g { color: var(--green); }
+.r { color: var(--red); }
+.m { color: var(--magenta); }
+.k { color: var(--black); }
+.inv { background: var(--gray); color: var(--blue-deep); }
+.sel { background: var(--sel-bg); color: var(--sel-fg); }
+.bid { color: var(--bid); }
+.ask { color: var(--ask); }
+.ours { color: var(--ours); }
+
+/* ---------- ladder ---------- */
+.ladder {
+  display: block;
+}
+.ladder .row {
+  position: relative;
+  height: var(--ch);
+  white-space: pre;
+}
+.ladder .row.spread {
+  color: var(--fg-dim);
+  border-top: 1px solid var(--gray-dark);
+  border-bottom: 1px solid var(--gray-dark);
+  box-sizing: border-box;
+}
+.ladder .bar {
+  position: absolute;
+  top: 2px;
+  height: calc(var(--ch) - 4px);
+  padding: 0;
+  background: none;
+}
+.ladder .bar.bid { background: var(--bid-bar); }
+.ladder .bar.ask { background: var(--ask-bar); }
+.ladder .bar.ahead { background: var(--ahead-bar); }
+.ladder .bar.ours { background: var(--ours-bar); }
+.ladder .txt {
+  position: absolute;
+  top: 0;
+  white-space: pre;
+}
+.ladder .row.best .px { color: var(--white); }
+.fill-flash { background: var(--yellow); color: var(--blue-deep); }
+.hit { background: var(--gray); color: var(--blue-deep); }
+
+/* queue bars */
+.qbar {
+  display: inline-block;
+  position: relative;
+  height: calc(var(--ch) - 6px);
+  vertical-align: middle;
+  background: var(--blue-dark);
+}
+.qbar > i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.qbar > i.ahead { background: var(--ahead-bar); }
+.qbar > i.ours { background: var(--ours); }
+.qbar > i.behind { background: var(--gray-dark); }
+
+canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+/* loading */
+.loading {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+  color: var(--gray);
+  white-space: pre;
+}
