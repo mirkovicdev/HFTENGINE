@@ -1,13 +1,10 @@
 # hftengine
 
-A native-looking replay console for [hftbacktest](https://github.com/nkaz001/hftbacktest) market-making
+A replay console for [hftbacktest](https://github.com/nkaz001/hftbacktest) market-making
 backtests. It runs one of hftbacktest's own tutorial strategies against real recorded Binance USDT-M
 Futures order-book data and shows what the engine sees and decides, frame by frame: the local order
 book, every resting order with its exchange-side queue estimate, feed and order latencies, market
 trades, executions, the raw feed the collector recorded, and the engine's own run statistics.
-
-Nothing on screen is mocked. Every number is read from a session recording (`.hbr`) that the runner
-writes while the backtest runs.
 
 ![all nine panels](docs/shots/landscape_2560x1440.png)
 
