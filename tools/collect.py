@@ -1,15 +1,18 @@
-"""Start / stop the hftbacktest data collector as a detached process on Windows.
+"""Start / stop the hftbacktest data collector as a detached process (Windows, Linux, macOS).
 
 The collector (hftbacktest/collector, Rust) records the raw Binance Futures websocket
 streams (trade, bookTicker, depth@0ms) plus REST depth snapshots into
 <out>/<symbol>_<YYYYMMDD>.gz, one line per message: "<local_recv_ns> <raw json>".
 
 Stopping must be graceful (Ctrl+C) so the gzip stream is finished properly; a hard kill
-leaves the last deflate block unflushed.  `stop` attaches to the collector's hidden
-console and raises CTRL_C_EVENT there.
+leaves the last deflate block unflushed.  On Windows `stop` attaches to the collector's hidden
+console and raises CTRL_C_EVENT there; on POSIX it sends SIGINT, which is what the collector's
+tokio `ctrl_c()` handler listens for.
 
-The collector is started in its own hidden console WITHOUT CREATE_NEW_PROCESS_GROUP: that flag
-disables Ctrl+C for the new process on Windows, which is exactly the signal `stop` sends.
+Windows: the collector is started in its own hidden console WITHOUT CREATE_NEW_PROCESS_GROUP: that
+flag disables Ctrl+C for the new process, which is exactly the signal `stop` sends.
+POSIX: the collector is started in its own session (setsid), so it has no controlling terminal and
+survives the shell that started it; a Ctrl+C in that shell does not reach it, only `stop` does.
 
 Usage:
     python tools/collect.py start [--symbols BTCUSDT ETHUSDT] [--exchange binancefutures] [--out data/raw]
@@ -22,13 +25,15 @@ import argparse
 import ctypes
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-COLLECTOR = ROOT / "hftbacktest" / "target" / "release" / "collector.exe"
+WIN = sys.platform == "win32"
+COLLECTOR = ROOT / "hftbacktest" / "target" / "release" / ("collector.exe" if WIN else "collector")
 RAW_DIR = ROOT / "data" / "raw"
 STATE = RAW_DIR / "collector.json"
 LOG = RAW_DIR / "collector.log"
@@ -57,13 +62,19 @@ def start(symbols: list[str], exchange: str) -> None:
     if not COLLECTOR.exists():
         sys.exit(f"collector binary not found: {COLLECTOR} (cargo build --release -p collector)")
 
-    si = subprocess.STARTUPINFO()
-    si.dwFlags |= STARTF_USESHOWWINDOW
-    si.wShowWindow = SW_HIDE
-    # A child inherits its parent's "ignore Ctrl+C" flag. Shells often start non-interactive
-    # children with that flag set, which would make the collector deaf to the Ctrl+C that
-    # `stop` sends; clear it for ourselves right before spawning.
-    ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False)
+    if WIN:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= STARTF_USESHOWWINDOW
+        si.wShowWindow = SW_HIDE
+        # A child inherits its parent's "ignore Ctrl+C" flag. Shells often start non-interactive
+        # children with that flag set, which would make the collector deaf to the Ctrl+C that
+        # `stop` sends; clear it for ourselves right before spawning.
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False)
+        detach = {"creationflags": CREATE_NEW_CONSOLE, "startupinfo": si}
+    else:
+        # New session (setsid): no controlling terminal, so the collector outlives this shell and
+        # a Ctrl+C typed here is not delivered to it; `stop` signals its pid directly.
+        detach = {"start_new_session": True}
     env = dict(os.environ, RUST_LOG="info")
     log = open(LOG, "ab")
     proc = subprocess.Popen(
@@ -71,10 +82,9 @@ def start(symbols: list[str], exchange: str) -> None:
         stdout=log,
         stderr=log,
         stdin=subprocess.DEVNULL,
-        creationflags=CREATE_NEW_CONSOLE,
-        startupinfo=si,
         env=env,
         cwd=str(ROOT),
+        **detach,
     )
     STATE.write_text(json.dumps({
         "pid": proc.pid,
@@ -96,16 +106,24 @@ def stop() -> None:
         print(f"collector pid {pid} is not running")
         STATE.unlink()
         return
-    k32 = ctypes.windll.kernel32
-    # Attach to the collector's console, make ourselves immune to the Ctrl+C we are about to
-    # raise, then signal every process attached to that console (only the collector).
-    k32.FreeConsole()
-    if not k32.AttachConsole(pid):
-        sys.exit(f"AttachConsole({pid}) failed: {ctypes.get_last_error()}")
-    k32.SetConsoleCtrlHandler(None, True)
-    if not k32.GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0):
-        sys.exit(f"GenerateConsoleCtrlEvent failed: {ctypes.get_last_error()}")
-    k32.FreeConsole()
+    if WIN:
+        k32 = ctypes.windll.kernel32
+        # Attach to the collector's console, make ourselves immune to the Ctrl+C we are about to
+        # raise, then signal every process attached to that console (only the collector).
+        k32.FreeConsole()
+        if not k32.AttachConsole(pid):
+            sys.exit(f"AttachConsole({pid}) failed: {ctypes.get_last_error()}")
+        k32.SetConsoleCtrlHandler(None, True)
+        if not k32.GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0):
+            sys.exit(f"GenerateConsoleCtrlEvent failed: {ctypes.get_last_error()}")
+        k32.FreeConsole()
+    else:
+        # SIGINT is the Unix Ctrl+C: tokio's ctrl_c() resolves and the collector finishes its
+        # gzip streams before exiting, exactly as on Windows.
+        try:
+            os.kill(pid, signal.SIGINT)
+        except ProcessLookupError:
+            pass  # exited between the check above and now; the wait below sees that
     for _ in range(300):
         if not _alive(pid):
             break
@@ -135,14 +153,31 @@ def status() -> None:
 
 
 def _alive(pid: int) -> bool:
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not h:
+    if WIN:
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(h)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)  # signal 0: existence check only, nothing is delivered
+    except ProcessLookupError:
         return False
-    code = ctypes.c_ulong()
-    ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
-    ctypes.windll.kernel32.CloseHandle(h)
-    return bool(ok) and code.value == 259  # STILL_ACTIVE
+    except PermissionError:
+        return False  # exists but belongs to another user, so it is not the collector we started
+    # The state file can outlive the process (e.g. across a reboot) and the pid be reused by
+    # something else; on Linux confirm via procfs that it is still the collector before we
+    # report it alive or send it SIGINT. Other POSIX systems (macOS) have no procfs: trust the pid.
+    if not Path("/proc/self").exists():
+        return True
+    try:
+        argv0 = Path("/proc", str(pid), "cmdline").read_bytes().split(b"\0")[0]
+    except OSError:
+        return False  # gone in the meantime
+    return Path(os.fsdecode(argv0)).name == COLLECTOR.name
 
 
 if __name__ == "__main__":
