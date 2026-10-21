@@ -20,8 +20,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PY = ROOT / ".venv" / "Scripts" / "python.exe"
-RUNNER = ROOT / "runner" / "target" / "release" / "hftengine-runner.exe"
+WIN = sys.platform == "win32"
+PY = ROOT / ".venv" / ("Scripts" if WIN else "bin") / ("python.exe" if WIN else "python")
+RUNNER = ROOT / "runner" / "target" / "release" / ("hftengine-runner.exe" if WIN else "hftengine-runner")
 
 
 def main() -> None:
